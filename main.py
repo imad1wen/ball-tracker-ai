@@ -1,14 +1,7 @@
-from fastapi import FastAPI, File, UploadFile
-import uvicorn
+from flask import Flask
 
-app = FastAPI()
+app = Flask(__name__)
 
-@app.get("/")
-async def root():
-    return {"message": "Ball tracker AI is running"}
-
-# نقطة بداية رفع الفيديو (تطوير لاحق)
-@app.post("/analyze")
-async def analyze_video(file: UploadFile = File(...)):
-    # مبدئياً فقط يعيد اسم الملف
-    return {"filename": file.filename}
+@app.route('/')
+def home():
+    return "Hello from Flask on Render!"
