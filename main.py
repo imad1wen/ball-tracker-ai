@@ -1,9 +1,9 @@
 from video_processor import process_video
-from flask import send_file, request
-from flask import Flask, render_template, request
+from flask import send_file, request, Flask, render_template
 import os
 
 app = Flask(__name__)
+
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -20,7 +20,12 @@ def upload_video():
     video_path = os.path.join(UPLOAD_FOLDER, video.filename)
     video.save(video_path)
 
-    return f'✅ تم رفع الفيديو بنجاح: {video.filename}'
+    # معالجة الفيديو
+    output_path = process_video(video_path)
+
+    # إرسال الملف الناتج للمستخدم
+    return send_file(output_path, as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
+    
