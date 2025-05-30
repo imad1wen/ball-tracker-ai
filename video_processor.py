@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 
 def process_video(video_path):
     cap = cv2.VideoCapture(video_path)
@@ -8,91 +9,67 @@ def process_video(video_path):
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    temp_output_path = "ball-tracker-raw.mp4"
-    final_output_path = "ball-tracker-final.mp4"
-    out = cv2.VideoWriter(temp_output_path, fourcc, fps, (w, h))
 
-    last_known_ball_pos = None
-    tracking_started = False
-    tracked_cup_pos = None
+    output_path = "outputs/processed_video.mp4"
+    os.makedirs("outputs", exist_ok=True)
+    out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
-    def detect_red_ball(frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        lower_red1 = np.array([0, 120, 70])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 120, 70])
-        upper_red2 = np.array([180, 255, 255])
-        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        mask = cv2.bitwise_or(mask1, mask2)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            largest = max(contours, key=cv2.contourArea)
-            if cv2.contourArea(largest) > 100:
-                x, y, w_box, h_box = cv2.boundingRect(largest)
-                return (x + w_box // 2, y + h_box // 2)
-        return None
+    ball_position = None
+    target_cup_position = None
+    tracking = False
 
-    tracked_positions = []
-
-    while True:
+    for frame_idx in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT))):
         ret, frame = cap.read()
         if not ret:
             break
 
-        current_ball_pos = detect_red_ball(frame)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        if not tracking_started:
-            if current_ball_pos:
-                last_known_ball_pos = current_ball_pos
-                cv2.circle(frame, current_ball_pos, 10, (0, 255, 0), 2)
-            elif last_known_ball_pos:
-                tracking_started = True
-        else:
+        # 1️⃣ البحث عن الكرة الحمراء (في أول الفريمات فقط)
+        if frame_idx < 30 and ball_position is None:
+            lower_red1 = np.array([0, 70, 50])
+            upper_red1 = np.array([10, 255, 255])
+            lower_red2 = np.array([170, 70, 50])
+            upper_red2 = np.array([180, 255, 255])
+
+            mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+            mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+            red_mask = cv2.bitwise_or(mask1, mask2)
+
+            contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                c = max(contours, key=cv2.contourArea)
+                (x, y), radius = cv2.minEnclosingCircle(c)
+                if radius > 5:
+                    ball_position = (int(x), int(y))
+                    cv2.circle(frame, ball_position, int(radius), (0, 0, 255), 2)
+
+        # 2️⃣ بعد تحديد الكرة، نبحث عن الكأس اللي غطاها
+        if ball_position and not tracking:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+            _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            min_distance = float('inf')
-            closest_center = None
 
-            for cnt in contours:
-                if cv2.contourArea(cnt) < 300:
-                    continue
-                x, y, w_box, h_box = cv2.boundingRect(cnt)
-                center = (x + w_box // 2, y + h_box // 2)
-                if tracked_cup_pos is None:
-                    distance = np.linalg.norm(np.array(center) - np.array(last_known_ball_pos))
-                else:
-                    distance = np.linalg.norm(np.array(center) - np.array(tracked_cup_pos))
+            for c in contours:
+                x, y, w_cup, h_cup = cv2.boundingRect(c)
+                if x < ball_position[0] < x + w_cup and y < ball_position[1] < y + h_cup:
+                    target_cup_position = (x, y, w_cup, h_cup)
+                    tracking = True
+                    break
 
-                if distance < min_distance:
-                    min_distance = distance
-                    closest_center = center
-
-            if closest_center:
-                tracked_cup_pos = closest_center
-                tracked_positions.append(tracked_cup_pos)
-                cv2.circle(frame, tracked_cup_pos, 10, (255, 0, 0), 2)
+        # 3️⃣ تتبع الكأس
+        if tracking and target_cup_position:
+            x, y, w_cup, h_cup = target_cup_position
+            cv2.rectangle(frame, (x, y), (x + w_cup, y + h_cup), (255, 0, 0), 2)
 
         out.write(frame)
 
+    # 4️⃣ حفظ الموقع النهائي للكأس
+    if tracking and target_cup_position:
+        final_x, final_y, final_w, final_h = target_cup_position
+        print("📍 الكأس اللي فيه الكرة صار هون:", (final_x, final_y))
+
     cap.release()
     out.release()
-
-    if tracked_cup_pos:
-        cap = cv2.VideoCapture(temp_output_path)
-        out = cv2.VideoWriter(final_output_path, fourcc, fps, (w, h))
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            cv2.line(frame, (tracked_cup_pos[0]-20, tracked_cup_pos[1]-20),
-                            (tracked_cup_pos[0]+20, tracked_cup_pos[1]+20), (0,0,255), 3)
-            cv2.line(frame, (tracked_cup_pos[0]+20, tracked_cup_pos[1]-20),
-                            (tracked_cup_pos[0]-20, tracked_cup_pos[1]+20), (0,0,255), 3)
-            out.write(frame)
-        cap.release()
-        out.release()
-
-    return final_output_path
-            
+    return output_path
+                    
