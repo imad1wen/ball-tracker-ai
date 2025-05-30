@@ -3,6 +3,7 @@ from flask import send_file, request, Flask, render_template
 import os
 
 app = Flask(__name__)
+
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -17,7 +18,7 @@ def upload_video():
 
     video = request.files['video']
     video_path = os.path.join(UPLOAD_FOLDER, video.filename)
-    
+
     try:
         video.save(video_path)
         print("✅ تم حفظ الفيديو في:", video_path)
